@@ -1,0 +1,124 @@
+def check_column_names(base_df, new_df):
+    print("Checking column names...")
+    base_columns = set(base_df.columns)
+    new_columns = set(new_df.columns)
+    missing_columns = base_columns - new_columns
+    extra_columns = new_columns - base_columns
+    print(f"Missing Columns: {missing_columns}")
+    print(f"Extra Columns: {extra_columns}")
+    return missing_columns, extra_columns
+
+def check_data_types(base_df, new_df):
+    print("Checking data types...")
+    base_dtypes = dict(base_df.dtypes)
+    new_dtypes = dict(new_df.dtypes)
+    type_discrepancies = {col: (base_dtypes[col], new_dtypes[col]) 
+                          for col in base_dtypes if col in new_dtypes and base_dtypes[col] != new_dtypes[col]}
+    print(f"Type Discrepancies: {type_discrepancies}")
+    return type_discrepancies
+
+def check_row_count(base_df, new_df):
+    print("Checking row count...")
+    base_count = base_df.count()
+    new_count = new_df.count()
+    print(f"Row Count - Base: {base_count}, New: {new_count}")
+    return base_count, new_count
+
+def check_schema_size(base_df, new_df):
+    print("Checking schema size...")
+    base_size = len(base_df.columns)
+    new_size = len(new_df.columns)
+    print(f"Schema Size - Base: {base_size}, New: {new_size}")
+    return base_size, new_size
+
+def check_null_values(base_df, new_df):
+    print("Checking null values...")
+    base_nulls = {col: base_df.filter(base_df[col].isNull()).count() for col in base_df.columns}
+    new_nulls = {col: new_df.filter(new_df[col].isNull()).count() for col in new_df.columns}
+    print(f"Null Values - Base: {base_nulls}")
+    print(f"Null Values - New: {new_nulls}")
+    return base_nulls, new_nulls
+
+
+def compare_statistics(base_df, new_df):
+    numerical_columns = [f.name for f in base_df.schema.fields if isinstance(f.dataType, (IntegerType, DoubleType, FloatType, DecimalType))]
+    discrepancy_report = {}
+
+    for col_name in numerical_columns:
+        if col_name in new_df.columns:
+            base_stats = base_df.select(
+                mean(col(col_name)).alias('mean'),
+                stddev(col(col_name)).alias('stddev'),
+                min(col(col_name)).alias('min'),
+                max(col(col_name)).alias('max')
+            ).collect()[0]
+
+            new_stats = new_df.select(
+                mean(col(col_name)).alias('mean'),
+                stddev(col(col_name)).alias('stddev'),
+                min(col(col_name)).alias('min'),
+                max(col(col_name)).alias('max')
+            ).collect()[0]
+
+            discrepancy_report[col_name] = {
+                'base_mean': base_stats['mean'],
+                'new_mean': new_stats['mean'],
+                'base_stddev': base_stats['stddev'],
+                'new_stddev': new_stats['stddev'],
+                'base_min': base_stats['min'],
+                'new_min': new_stats['min'],
+                'base_max': base_stats['max'],
+                'new_max': new_stats['max']
+            }
+
+    return discrepancy_report
+
+
+
+and now how to call it
+
+# Load the tables
+print("Loading tables...")
+base_df = spark.read.table("transfer")
+new_df = spark.read.table("transfer2")
+
+# Execute the checks
+print("Executing checks...")
+missing_columns, extra_columns = check_column_names(base_df, new_df)
+type_discrepancies = check_data_types(base_df, new_df)
+base_count, new_count = check_row_count(base_df, new_df)
+base_size, new_size = check_schema_size(base_df, new_df)
+base_nulls, new_nulls = check_null_values(base_df, new_df)
+
+print("Comparing statistical metrics...")
+stats_discrepancies = compare_statistics(base_df, new_df)
+for column, values in stats_discrepancies.items():
+    print(f"Statistical discrepancies for {column}: {values}")
+
+# Compile and log the results
+print("Compiling results...")
+log_message = f"""
+Missing Columns: {missing_columns}
+Extra Columns: {extra_columns}
+Type Discrepancies: {type_discrepancies}
+Row Count - Base: {base_count}, New: {new_count}
+Schema Size - Base: {base_size}, New: {new_size}
+Null Values - Base: {base_nulls}, New: {new_nulls}
+"""
+print(log_message)
+
+# Append statistical discrepancies to the log message
+log_message += "\nStatistical Discrepancies:\n" + "\n".join([f"{col}: {vals}" for col, vals in stats_discrepancies.items()])
+
+# Logging to a Delta table
+log_df = spark.createDataFrame([(log_message,)], ["log_message"])
+log_df.write.format("delta").mode("append").save("log of data table path")
+
+# Alerting (if needed)
+if missing_columns or extra_columns or type_discrepancies or base_count != new_count or base_size != new_size:
+    print("Discrepancies found, sending alert...")
+    # Trigger an alert (we need to implement send_alert based on our alerting mechanism)
+    #send_alert(log_message)  # Example function would be something like this
+else:
+    print("No major discrepancies found.")
+
